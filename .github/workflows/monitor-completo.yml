@@ -1,14 +1,14 @@
-name: Monitor de salud web - Country Villas Lanzarote
+name: Monitor de salud web - RASTREO COMPLETO (Country Villas Lanzarote)
 
 on:
   schedule:
-    - cron: "0 */2 * * *"   # cada 2 horas, en UTC
+    - cron: "0 */8 * * *"   # cada 8 horas, en UTC -- enlaces rotos + huérfanas
   workflow_dispatch: {}       # permite lanzarlo a mano desde la pestaña Actions, para probar
 
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - name: Descargar el repositorio
         uses: actions/checkout@v4
@@ -23,8 +23,9 @@ jobs:
           pip install -r requirements.txt
           python -m playwright install --with-deps chromium
 
-      - name: Ejecutar el monitor
+      - name: Ejecutar el monitor (rastreo completo)
         env:
+          SITE_MONITOR_MODE: completo
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}

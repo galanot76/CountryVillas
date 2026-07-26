@@ -81,11 +81,18 @@ NON_PAGE_EXTENSIONS = (
 SUPABASE_URL = os.environ.get("SUPABASE_URL")            # ej: https://xxxx.supabase.co
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")    # service_role key (secreta)
 SUPABASE_TABLE = os.environ.get("SUPABASE_TABLE", "site_monitor_state")
-SUPABASE_ROW_KEY = "countryvillaslanzarote"  # id fijo de la única fila que usamos
+
+# --- Modo de ejecución: "completo" (rastreo entero) o "critico" (solo las
+# fichas críticas + motor de reservas, pensado para correr más a menudo).
+# Cada modo guarda su propio estado en Supabase para no pisarse entre sí.
+MODE = os.environ.get("SITE_MONITOR_MODE", "completo").strip().lower()
+if MODE not in ("completo", "critico"):
+    MODE = "completo"
+SUPABASE_ROW_KEY = f"countryvillaslanzarote_{MODE}"
 
 # Si no hay Supabase configurado, cae de vuelta a un JSON local (útil para
 # probar el script en tu propio ordenador antes de subirlo a GitHub).
-STATE_FILE = os.environ.get("SITE_MONITOR_STATE_FILE", "site_monitor_state.json")
+STATE_FILE = os.environ.get("SITE_MONITOR_STATE_FILE", f"site_monitor_state_{MODE}.json")
 
 # --- Resend (envío de email) ----------------------------------------------
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
@@ -412,11 +419,12 @@ def save_state(state):
 
 def build_email_body(new_errors, resolved_errors, new_orphans, total_pages, is_first_run,
                       critical_results=None, booking_engine_status=None,
-                      prev_critical_failing=None):
+                      prev_critical_failing=None, only_critical=False):
     lines = []
     lines.append(f"Informe de salud web - countryvillaslanzarote.com")
     lines.append(f"Fecha: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
-    lines.append(f"Páginas internas rastreadas: {total_pages}")
+    if not only_critical:
+        lines.append(f"Páginas internas rastreadas: {total_pages}")
     lines.append("")
 
     # --- sección de páginas críticas: se muestra siempre que haya problema ---
@@ -476,8 +484,9 @@ def build_email_body(new_errors, resolved_errors, new_orphans, total_pages, is_f
             lines.append(f"  - {url}")
         lines.append("")
 
-    if not new_errors and not resolved_errors and not new_orphans and not critical_problems:
-        lines.append("Sin novedades desde el último rastreo.")
+    if not only_critical:
+        if not new_errors and not resolved_errors and not new_orphans and not critical_problems:
+            lines.append("Sin novedades desde el último rastreo.")
 
     lines.append("")
     lines.append("---")
@@ -533,8 +542,12 @@ def send_email(subject, body):
         print(f"ERROR enviando email vía Resend: {e}")
 
 
-def main():
-    print(f"[{datetime.now().isoformat()}] Iniciando rastreo...")
+def main_completo():
+    """Rastreo completo del sitio: enlaces rotos + huérfanas + fichas
+    críticas. Pensado para correr cada 6-12h (no hace falta más a menudo:
+    un enlace roto no es una emergencia de minutos, y las huérfanas son
+    un problema de días/semanas, no de horas)."""
+    print(f"[{datetime.now().isoformat()}] Iniciando rastreo completo...")
     result = crawl_site()
 
     state = load_state()
@@ -558,7 +571,8 @@ def main():
     confirmed_orphans = check_orphan_candidates(session, candidate_orphan_urls) if candidate_orphan_urls else []
     new_orphans = [u for u in confirmed_orphans if u not in prev_reported_orphans]
 
-    # --- páginas críticas de reserva: se comprueban siempre, con prioridad ---
+    # --- páginas críticas de reserva: también aquí, aunque su cadencia
+    # principal de vigilancia es el modo "critico" ---
     critical_session = requests.Session()
     critical_session.headers.update({"User-Agent": USER_AGENT})
     critical_results = check_critical_pages(critical_session)
@@ -606,11 +620,72 @@ def main():
         "last_run": datetime.now(timezone.utc).isoformat(),
     }
     save_state(new_state)
-    print(f"[{datetime.now().isoformat()}] Rastreo completo. "
+    print(f"[{datetime.now().isoformat()}] Rastreo completo terminado. "
           f"{len(current_linked)} URLs, {len(current_errors)} con error, "
           f"{len(confirmed_orphans)} huérfanas confirmadas, "
           f"{len(current_critical_failing)} fichas críticas con problemas.")
 
 
+def main_critico():
+    """Solo las fichas críticas de reserva + el motor de reservas externo
+    (Avantio). No rastrea el resto del sitio -- pensado para correr cada
+    30-60 min, porque aquí sí importa el tiempo de detección (una caída
+    sin detectar son reservas perdidas), y es barato al ser una sola
+    página (o pocas)."""
+    print(f"[{datetime.now().isoformat()}] Iniciando chequeo de fichas críticas...")
+
+    state = load_state()
+    is_first_run = "critical_failing" not in state or state.get("last_run") is None
+
+    session = requests.Session()
+    session.headers.update({"User-Agent": USER_AGENT})
+    critical_results = check_critical_pages(session)
+    booking_engine_status = check_booking_engine_dependency(session)
+
+    prev_critical_failing = set(state.get("critical_failing", []))
+    current_critical_failing = {
+        r["url"] for r in critical_results if r["status"] != 200 or r["missing_markers"] or r["widget_problems"]
+    }
+
+    critical_now_failing = bool(current_critical_failing)
+    critical_recovered = bool(prev_critical_failing - current_critical_failing) and not critical_now_failing
+    booking_engine_down = booking_engine_status != 200
+    booking_engine_recovered = state.get("booking_engine_down", False) and not booking_engine_down
+
+    if (is_first_run or critical_now_failing or critical_recovered
+            or booking_engine_down or booking_engine_recovered):
+        body = build_email_body(
+            new_errors=[], resolved_errors=[], new_orphans=[],
+            total_pages=0,
+            is_first_run=False,  # no queremos el mensaje de "línea base del rastreo completo" aquí
+            critical_results=critical_results,
+            booking_engine_status=booking_engine_status,
+            prev_critical_failing=prev_critical_failing,
+            only_critical=True,
+        )
+        if is_first_run and not critical_now_failing and not booking_engine_down:
+            body = ("Chequeo de fichas críticas activado. Todo correcto por ahora.\n\n" + body)
+        subject = "Country Villas Lanzarote - Chequeo de fichas críticas"
+        if critical_now_failing or booking_engine_down:
+            subject = "🔴 Country Villas Lanzarote - FICHA(S) DE RESERVA CON PROBLEMAS"
+        elif critical_recovered or booking_engine_recovered:
+            subject = "✓ Country Villas Lanzarote - Fichas críticas recuperadas"
+        send_email(subject, body)
+    else:
+        print("Sin novedades en fichas críticas. No se envía email.")
+
+    new_state = dict(state)  # conserva cualquier otra clave que ya tuviera esta fila
+    new_state["critical_failing"] = list(current_critical_failing)
+    new_state["booking_engine_down"] = booking_engine_down
+    new_state["last_run"] = datetime.now(timezone.utc).isoformat()
+    save_state(new_state)
+    print(f"[{datetime.now().isoformat()}] Chequeo de fichas críticas terminado. "
+          f"{len(current_critical_failing)} con problemas. "
+          f"Motor de reservas: {'CAÍDO' if booking_engine_down else 'OK'}.")
+
+
 if __name__ == "__main__":
-    main()
+    if MODE == "critico":
+        main_critico()
+    else:
+        main_completo()

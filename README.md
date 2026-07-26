@@ -8,13 +8,23 @@ por correo SOLO cuando hay algo nuevo que reportar.
 
 | Pieza | Para qué |
 |---|---|
-| GitHub (repo + Actions) | "Reloj" que lo ejecuta cada 2h, y máquina donde corre |
-| Supabase | Guarda el estado entre ejecuciones (qué se sabía la vez anterior) |
+| GitHub (repo + Actions) | "Reloj" que lo ejecuta, y máquina donde corre |
+| Supabase | Guarda el estado entre ejecuciones (uno por cada workflow) |
 | Resend | Envía el correo de aviso |
 
+Hay **dos workflows separados**, con objetivos y cadencias distintas:
+
+| Workflow | Qué comprueba | Cadencia | Por qué |
+|---|---|---|---|
+| `monitor-completo.yml` | Las ~88 URLs del sitio: enlaces rotos + páginas huérfanas | Cada 8 horas | Un enlace roto no es una emergencia de minutos, y las huérfanas son un problema de días/semanas -- no hace falta más frecuencia. |
+| `monitor-critico.yml` | Solo las fichas de reserva críticas (ej. Casa Duran) + el motor de reservas externo (Avantio) | Cada 30 minutos | Aquí sí importa la velocidad de detección: cada hora de caída sin detectar son reservas perdidas. Es barato (1-2 páginas), así que ir fino aquí no cuesta nada. |
+
 No hace falta Vercel para esto: su plan gratuito solo permite cron una vez
-al día, y aquí necesitamos cada 2 horas. GitHub Actions sí lo permite gratis
-(y sin límite de minutos, si el repositorio es público).
+al día, y aquí necesitamos mucha más frecuencia (sobre todo para el
+chequeo crítico). GitHub Actions sí lo permite gratis, y sin límite de
+minutos si el repositorio es público -- con esta cadencia (48
+ejecuciones/día del chequeo crítico + 3/día del completo) un repo privado
+se quedaría corto de minutos gratis muy rápido.
 
 ---
 

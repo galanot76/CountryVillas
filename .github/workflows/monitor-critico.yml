@@ -1,0 +1,34 @@
+name: Monitor de salud web - FICHAS CRITICAS (Country Villas Lanzarote)
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # cada 30 minutos, en UTC -- solo fichas de reserva críticas
+  workflow_dispatch: {}        # permite lanzarlo a mano desde la pestaña Actions, para probar
+
+jobs:
+  monitor-critico:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Descargar el repositorio
+        uses: actions/checkout@v4
+
+      - name: Instalar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Ejecutar el monitor (solo fichas críticas)
+        env:
+          SITE_MONITOR_MODE: critico
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          SITE_MONITOR_EMAIL_FROM: ${{ secrets.SITE_MONITOR_EMAIL_FROM }}
+          SITE_MONITOR_EMAIL_TO: ${{ secrets.SITE_MONITOR_EMAIL_TO }}
+        run: python site_monitor.py
