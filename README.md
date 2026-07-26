@@ -80,6 +80,19 @@ repository secret**. Crear estos 5 secrets:
 | `SITE_MONITOR_EMAIL_FROM` | `onboarding@resend.dev` (o tu remitente verificado) |
 | `SITE_MONITOR_EMAIL_TO` | El correo de Andrés que debe recibir los avisos |
 
+**Personalizar el remitente:** sin dominio verificado, la dirección tiene
+que ser exactamente `onboarding@resend.dev`, pero el nombre visible sí se
+puede cambiar: `SITE_MONITOR_EMAIL_FROM = "Monitor CVL <onboarding@resend.dev>"`.
+Con dominio verificado, puedes usar cualquier dirección de ese dominio.
+
+**Varios destinatarios:** separa las direcciones por coma en el secret
+`SITE_MONITOR_EMAIL_TO`, por ejemplo:
+`andres@correo.com,tecnico@correo.com`. El script las trocea y se las pasa
+a Resend como lista. Ojo: mientras uses `onboarding@resend.dev` sin
+dominio verificado, Resend solo entrega al correo del propio dueño de la
+cuenta -- si añades otra dirección distinta, ese envío fallará hasta que
+verifiques un dominio propio.
+
 ## Paso 5 — Probarlo
 
 1. Ve a la pestaña **Actions** del repo.

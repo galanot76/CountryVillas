@@ -61,6 +61,10 @@ STATE_FILE = os.environ.get("SITE_MONITOR_STATE_FILE", "site_monitor_state.json"
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
 EMAIL_FROM = os.environ.get("SITE_MONITOR_EMAIL_FROM", "onboarding@resend.dev")
 EMAIL_TO = os.environ.get("SITE_MONITOR_EMAIL_TO")
+# Varios destinatarios: separarlos por coma en el secret SITE_MONITOR_EMAIL_TO
+# (ej. "andres@correo.com,tecnico@correo.com"). Aquí se trocean en una lista,
+# que es lo que espera de verdad el campo "to" de la API de Resend.
+EMAIL_TO_LIST = [addr.strip() for addr in EMAIL_TO.split(",")] if EMAIL_TO else []
 
 # --- Páginas críticas (fichas reservables) -------------------------------
 # Lista de URLs de producto/reserva que se comprueban SIEMPRE, en cada
@@ -450,7 +454,7 @@ def build_email_body(new_errors, resolved_errors, new_orphans, total_pages, is_f
 
 
 def send_email(subject, body):
-    if not RESEND_API_KEY or not EMAIL_TO:
+    if not RESEND_API_KEY or not EMAIL_TO_LIST:
         print("Resend no configurado (faltan RESEND_API_KEY / SITE_MONITOR_EMAIL_TO). No se envía email.")
         print("--- CONTENIDO DEL INFORME ---")
         print(body)
@@ -468,7 +472,7 @@ def send_email(subject, body):
             },
             json={
                 "from": EMAIL_FROM,
-                "to": [EMAIL_TO],
+                "to": EMAIL_TO_LIST,
                 "subject": subject,
                 "html": html_body,
                 "text": body,
@@ -476,7 +480,7 @@ def send_email(subject, body):
             timeout=15,
         )
         resp.raise_for_status()
-        print(f"Email enviado a {EMAIL_TO} vía Resend.")
+        print(f"Email enviado a {', '.join(EMAIL_TO_LIST)} vía Resend.")
     except requests.exceptions.HTTPError as e:
         print(f"ERROR enviando email vía Resend: {e} -- respuesta: {resp.text}")
     except Exception as e:
