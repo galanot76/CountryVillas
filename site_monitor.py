@@ -41,11 +41,41 @@ except ImportError:
 
 START_URL = "https://www.countryvillaslanzarote.com/"
 DOMAIN = "www.countryvillaslanzarote.com"
-MAX_PAGES = int(os.environ.get("SITE_MONITOR_MAX_PAGES", 600))
+MAX_PAGES = int(os.environ.get("SITE_MONITOR_MAX_PAGES", 150))
 REQUEST_TIMEOUT = 12
 RETRY_COUNT = 2          # reintentos antes de dar un enlace por roto
 RETRY_DELAY = 4          # segundos entre reintentos
 REQUEST_DELAY = 0.3      # pausa entre peticiones (cortesía con el servidor)
+
+# --- Control de la explosión combinatoria de URLs ------------------------
+# El sitio genera varias URLs distintas (idiomas + slugs de texto) para la
+# MISMA propiedad, y páginas de listado por cada combinación de zona/etiqueta.
+# Verificado con datos reales: 50 alojamientos reales generaron 2.530 URLs
+# rastreadas en la primera ejecución. Para evitarlo:
+#  - Cada propiedad se identifica por su número de referencia final en la
+#    URL (ej. "...-238563.html" -> "238563"); solo se sigue/comprueba UNA
+#    URL por cada número de referencia, la primera que se encuentre.
+#  - Las páginas de listado (por etiqueta, por zona, "list-view") se siguen
+#    para descubrir propiedades nuevas, pero solo hasta un límite, porque
+#    a partir de unas pocas ya no aportan propiedades nuevas.
+PROPERTY_ID_REGEX = re.compile(r'-(\d{5,7})\.html$')
+# Independiente del idioma: las páginas de listado por zona siempre llevan
+# un identificador "-dNNN" (ej. "-d880", "-d459458"), tanto en inglés
+# ("rentals-arrecife-d880") como en español ("alquileres-arrecife-d880").
+# Se añaden además palabras clave conocidas (inglés y español) como red de
+# seguridad para listados por etiqueta, que no llevan ese identificador.
+LISTING_HINT_REGEX = re.compile(
+    r'-d\d+(/|$)|/tag-|list-view|/categoria-|vista-lista|/rentals/rentals-|'
+    r'/rentals/holidays-rentals|/alquiler/alquileres-|/alquiler/alquiler-alquileres'
+)
+MAX_LISTING_PAGES = int(os.environ.get("SITE_MONITOR_MAX_LISTING_PAGES", 25))
+# Extensiones de archivo que no son páginas (imágenes, documentos...) --
+# no tiene sentido rastrearlas como si fueran contenido navegable.
+NON_PAGE_EXTENSIONS = (
+    ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".ico",
+    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".zip", ".css", ".js",
+    ".mp4", ".mov", ".woff", ".woff2", ".ttf",
+)
 
 # --- Supabase (estado persistente entre ejecuciones) ----------------------
 SUPABASE_URL = os.environ.get("SUPABASE_URL")            # ej: https://xxxx.supabase.co
@@ -131,6 +161,8 @@ def crawl_site():
     referrers = {START_URL: None}
     page_status = {}     # url -> status (int o string de error)
     broken = []          # lista de dicts con detalle de enlaces rotos
+    seen_property_ids = set()   # para no comprobar la misma propiedad varias veces
+    listing_pages_queued = 0    # para no perseguir todas las combinaciones de zona/etiqueta
 
     while queue and len(visited) < MAX_PAGES:
         url = queue.popleft()
@@ -161,6 +193,20 @@ def crawl_site():
                 if parsed.query:
                     # nos saltamos combinaciones de búsqueda/reserva
                     continue
+                if parsed.path.lower().endswith(NON_PAGE_EXTENSIONS):
+                    continue  # imágenes, PDFs, etc. -- no son páginas a comprobar
+
+                prop_match = PROPERTY_ID_REGEX.search(parsed.path)
+                if prop_match:
+                    prop_id = prop_match.group(1)
+                    if prop_id in seen_property_ids:
+                        continue  # ya tenemos una URL para esta propiedad, no duplicar
+                    seen_property_ids.add(prop_id)
+                elif LISTING_HINT_REGEX.search(parsed.path):
+                    if listing_pages_queued >= MAX_LISTING_PAGES:
+                        continue  # ya hemos seguido bastantes páginas de listado
+                    listing_pages_queued += 1
+
                 if full not in visited and full not in queue:
                     queue.append(full)
                     referrers.setdefault(full, url)
