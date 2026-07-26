@@ -1,0 +1,33 @@
+name: Monitor de salud web - Country Villas Lanzarote
+
+on:
+  schedule:
+    - cron: "0 */2 * * *"   # cada 2 horas, en UTC
+  workflow_dispatch: {}       # permite lanzarlo a mano desde la pestaña Actions, para probar
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Descargar el repositorio
+        uses: actions/checkout@v4
+
+      - name: Instalar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Ejecutar el monitor
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          SITE_MONITOR_EMAIL_FROM: ${{ secrets.SITE_MONITOR_EMAIL_FROM }}
+          SITE_MONITOR_EMAIL_TO: ${{ secrets.SITE_MONITOR_EMAIL_TO }}
+        run: python site_monitor.py
