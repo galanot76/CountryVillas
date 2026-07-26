@@ -144,6 +144,18 @@ no hace falta redeploy manual, el siguiente cron ya usará la lista nueva.
 - El rastreo ignora URLs con parámetros de búsqueda (`?...`) para no
   quedar atrapado en las combinaciones del buscador de fechas/huéspedes
   del motor de reservas (Avantio).
+- El sitio muestra 50 alojamientos, pero generaba **2.530 URLs** en el
+  primer rastreo por dos motivos: cada propiedad tenía varias URLs
+  distintas apuntando a la misma ficha (slugs de texto diferentes), y las
+  páginas de listado por zona/etiqueta se traducen también en la URL
+  (`rentals-arrecife-d880` en inglés, `alquileres-arrecife-d880` en
+  español), lo que multiplicaba las combinaciones. Corregido: ahora el
+  script deduplica por número de referencia de propiedad y limita las
+  páginas de listado, dejando un rastreo real y completo de **~88 URLs**
+  en **~3 minutos** (antes: 2.530 URLs, ~11 minutos). Con este volumen,
+  la cadencia de 2 horas es holgada tanto para el sitio como para los
+  minutos de GitHub Actions -- no hace falta separar cadencias distintas
+  para rastreo completo vs. fichas críticas.
 - Un rastreo completo del sitio puede tardar bastantes minutos (cientos
   de páginas comprobadas una a una, con pausas de cortesía entre
   peticiones). Esto es normal y está dentro del límite de tiempo del
