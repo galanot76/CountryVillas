@@ -176,7 +176,7 @@ BOOKING_ENGINE_HEALTH_URL = "https://crs.avantio.com/default/js/jquery-3.4.1.min
 USE_HEADLESS_CHECK = os.environ.get("SITE_MONITOR_USE_HEADLESS", "1") == "1" and HEADLESS_AVAILABLE
 HEADLESS_TIMEOUT_MS = 30000
 HEADLESS_EXTRA_WAIT_MS = 3000
-PRICE_REGEX = re.compile(r'\d[\d.,]*\s?€|€\s?\d[\d.,]*')
+PRICE_REGEX = re.compile(r'\d[\d.,]*\s?€|€\s?\d[\d.,]*|£\s?\d[\d.,]*|\$\s?\d[\d.,]*')
 MIN_PRICE_MATCHES = 1        # al menos un precio real visible en la página
 MIN_CALENDAR_CHARS = 100     # el bloque de calendario debe tener contenido real
 AVANTIO_DOMAIN_HINT = "avantio"
@@ -645,6 +645,13 @@ def main_completo():
     # enlazada antes y ya no lo está -- así un cambio de slug (inglés vs
     # español) de la misma propiedad no se confunde con una huérfana real.
     candidate_orphan_identities = set(prev_identity_map) - set(current_identity_map)
+    # Las páginas de listado (zona/etiqueta) no se consideran para huérfanas:
+    # cuáles de ellas se visitan varía entre rastreos por el propio límite
+    # MAX_LISTING_PAGES, así que "desaparecer" no significa nada real aquí.
+    candidate_orphan_identities = {
+        i for i in candidate_orphan_identities
+        if not LISTING_HINT_REGEX.search(urlparse(prev_identity_map[i]).path)
+    }
     candidate_orphan_urls = {prev_identity_map[i] for i in candidate_orphan_identities}
     session = requests.Session()
     session.headers.update({"User-Agent": USER_AGENT})
@@ -712,7 +719,14 @@ def main_critico():
     (Avantio). No rastrea el resto del sitio -- pensado para correr cada
     30-60 min, porque aquí sí importa el tiempo de detección (una caída
     sin detectar son reservas perdidas), y es barato al ser una sola
-    página (o pocas)."""
+    página (o pocas).
+
+    Protección contra falsas alarmas: el sitio ha demostrado tener cortes
+    de red intermitentes por su cuenta (ajenos a este script). Por eso NO
+    se alarma a la primera -- una ficha (o el motor de reservas) tiene que
+    fallar en DOS ejecuciones seguidas antes de enviar el correo de aviso.
+    En el peor caso esto añade ~30 min al tiempo de detección, pero evita
+    que un bache de red puntual se confunda con una caída real."""
     print(f"[{datetime.now().isoformat()}] Iniciando chequeo de fichas críticas...")
 
     state = load_state()
@@ -723,15 +737,32 @@ def main_critico():
     critical_results = check_critical_pages(session)
     booking_engine_status = check_booking_engine_dependency(session)
 
-    prev_critical_failing = set(state.get("critical_failing", []))
-    current_critical_failing = {
+    # --- fichas críticas: confirmar solo si falla dos veces seguidas ---
+    prev_raw_failing = set(state.get("critical_raw_failing", []))
+    prev_confirmed_failing = set(state.get("critical_failing", []))
+    current_raw_failing = {
         r["url"] for r in critical_results if r["status"] != 200 or r["missing_markers"] or r["widget_problems"]
     }
 
-    critical_now_failing = bool(current_critical_failing)
-    critical_recovered = bool(prev_critical_failing - current_critical_failing) and not critical_now_failing
-    booking_engine_down = booking_engine_status != 200
-    booking_engine_recovered = state.get("booking_engine_down", False) and not booking_engine_down
+    newly_confirmed = (current_raw_failing & prev_raw_failing) - prev_confirmed_failing
+    still_confirmed = current_raw_failing & prev_confirmed_failing
+    confirmed_failing_now = newly_confirmed | still_confirmed
+    recovered_confirmed = prev_confirmed_failing - current_raw_failing
+
+    critical_now_failing = bool(newly_confirmed)
+    critical_recovered = bool(recovered_confirmed)
+
+    # Solo mostramos en el email las que están CONFIRMADAS (dos fallos seguidos)
+    critical_results_confirmed = [r for r in critical_results if r["url"] in confirmed_failing_now]
+
+    # --- motor de reservas externo: mismo criterio de doble confirmación ---
+    prev_raw_booking_down = state.get("booking_engine_raw_down", False)
+    prev_confirmed_booking_down = state.get("booking_engine_down", False)
+    current_raw_booking_down = booking_engine_status != 200
+
+    booking_engine_down = (current_raw_booking_down and prev_raw_booking_down) or \
+        (prev_confirmed_booking_down and current_raw_booking_down)
+    booking_engine_recovered = prev_confirmed_booking_down and not current_raw_booking_down
 
     if (is_first_run or critical_now_failing or critical_recovered
             or booking_engine_down or booking_engine_recovered):
@@ -739,9 +770,9 @@ def main_critico():
             new_errors=[], resolved_errors=[], new_orphans=[],
             total_pages=0,
             is_first_run=False,  # no queremos el mensaje de "línea base del rastreo completo" aquí
-            critical_results=critical_results,
-            booking_engine_status=booking_engine_status,
-            prev_critical_failing=prev_critical_failing,
+            critical_results=critical_results_confirmed,
+            booking_engine_status=booking_engine_status if booking_engine_down else 200,
+            prev_critical_failing=prev_confirmed_failing,
             only_critical=True,
         )
         if is_first_run and not critical_now_failing and not booking_engine_down:
@@ -753,16 +784,22 @@ def main_critico():
             subject = "✓ Country Villas Lanzarote - Fichas críticas recuperadas"
         send_email(subject, body)
     else:
-        print("Sin novedades en fichas críticas. No se envía email.")
+        print("Sin novedades confirmadas en fichas críticas. No se envía email.")
+        if current_raw_failing - prev_raw_failing:
+            print(f"  (aviso interno, sin email: {len(current_raw_failing)} ficha(s) fallando "
+                  f"por primera vez, pendiente de confirmar en la próxima ejecución)")
 
     new_state = dict(state)  # conserva cualquier otra clave que ya tuviera esta fila
-    new_state["critical_failing"] = list(current_critical_failing)
+    new_state["critical_failing"] = list(confirmed_failing_now)
+    new_state["critical_raw_failing"] = list(current_raw_failing)
     new_state["booking_engine_down"] = booking_engine_down
+    new_state["booking_engine_raw_down"] = current_raw_booking_down
     new_state["last_run"] = datetime.now(timezone.utc).isoformat()
     save_state(new_state)
     print(f"[{datetime.now().isoformat()}] Chequeo de fichas críticas terminado. "
-          f"{len(current_critical_failing)} con problemas. "
-          f"Motor de reservas: {'CAÍDO' if booking_engine_down else 'OK'}.")
+          f"{len(confirmed_failing_now)} confirmada(s) con problemas "
+          f"({len(current_raw_failing)} en esta ejecución, sin confirmar dos veces aún). "
+          f"Motor de reservas: {'CAÍDO (confirmado)' if booking_engine_down else 'OK'}.")
 
 
 if __name__ == "__main__":
