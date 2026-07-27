@@ -2,7 +2,7 @@ name: Monitor de salud web - FICHAS CRITICAS (Country Villas Lanzarote)
 
 on:
   schedule:
-    - cron: "*/30 * * * *"   # cada 30 minutos, en UTC -- solo fichas de reserva críticas
+    - cron: "0 * * * *"      # cada hora, en UTC -- solo fichas de reserva críticas
   workflow_dispatch: {}        # permite lanzarlo a mano desde la pestaña Actions, para probar
 
 jobs:

@@ -17,12 +17,12 @@ Hay **dos workflows separados**, con objetivos y cadencias distintas:
 | Workflow | Qué comprueba | Cadencia | Por qué |
 |---|---|---|---|
 | `monitor-completo.yml` | Las ~88 URLs del sitio: enlaces rotos + páginas huérfanas | Cada 8 horas | Un enlace roto no es una emergencia de minutos, y las huérfanas son un problema de días/semanas -- no hace falta más frecuencia. |
-| `monitor-critico.yml` | Solo las fichas de reserva críticas (ej. Casa Duran) + el motor de reservas externo (Avantio) | Cada 30 minutos | Aquí sí importa la velocidad de detección: cada hora de caída sin detectar son reservas perdidas. Es barato (1-2 páginas), así que ir fino aquí no cuesta nada. |
+| `monitor-critico.yml` | Solo las fichas de reserva críticas (ej. Casa Duran) + el motor de reservas externo (Avantio) | Cada hora | Aquí sí importa la velocidad de detección: cada hora de caída sin detectar son reservas perdidas. Con la doble confirmación (ver más abajo), la detección real puede tardar hasta 2 horas en el peor caso. |
 
 No hace falta Vercel para esto: su plan gratuito solo permite cron una vez
 al día, y aquí necesitamos mucha más frecuencia (sobre todo para el
 chequeo crítico). GitHub Actions sí lo permite gratis, y sin límite de
-minutos si el repositorio es público -- con esta cadencia (48
+minutos si el repositorio es público -- con esta cadencia (24
 ejecuciones/día del chequeo crítico + 3/día del completo) un repo privado
 se quedaría corto de minutos gratis muy rápido.
 
