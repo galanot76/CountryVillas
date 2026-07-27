@@ -135,6 +135,15 @@ PRICE_REGEX = re.compile(r'\d[\d.,]*\s?€')
 MIN_PRICE_MATCHES = 1        # al menos un precio real visible en la página
 MIN_CALENDAR_CHARS = 100     # el bloque de calendario debe tener contenido real
 AVANTIO_DOMAIN_HINT = "avantio"
+# Si no hay fechas disponibles en la ventana por defecto, Avantio muestra
+# un aviso en vez de un precio -- esto es NORMAL, no un fallo del widget.
+# Verificado con datos reales: 2 de 3 fichas de muestra no mostraban precio
+# por este motivo legítimo, con el calendario y las peticiones a Avantio
+# funcionando perfectamente.
+UNAVAILABILITY_HINT_REGEX = re.compile(
+    r'no disponible|not available|sold out|consultar precio|on request|fully booked',
+    re.IGNORECASE,
+)
 
 USER_AGENT = "Mozilla/5.0 (compatible; CVLanzaroteHealthCheck/1.0)"
 
@@ -345,8 +354,9 @@ def check_critical_pages_headless(urls):
 
                 body_text = page.locator("body").inner_text()
                 price_matches = PRICE_REGEX.findall(body_text)
-                if len(price_matches) < MIN_PRICE_MATCHES:
-                    problems.append("No se ven precios (€) reales en la página tras cargar el widget")
+                if len(price_matches) < MIN_PRICE_MATCHES and not UNAVAILABILITY_HINT_REGEX.search(body_text):
+                    problems.append("No se ven precios (€) reales en la página tras cargar el widget, "
+                                     "y tampoco hay aviso de no disponibilidad -- posible fallo real")
 
                 if page.locator("#bloque_formato_calendarios").count() > 0:
                     cal_text = page.locator("#bloque_formato_calendarios").inner_text()
