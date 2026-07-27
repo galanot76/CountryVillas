@@ -59,6 +59,12 @@ REQUEST_DELAY = 0.3      # pausa entre peticiones (cortesía con el servidor)
 #    para descubrir propiedades nuevas, pero solo hasta un límite, porque
 #    a partir de unas pocas ya no aportan propiedades nuevas.
 PROPERTY_ID_REGEX = re.compile(r'-(\d{5,7})\.html$')
+# Las páginas de "oferta" (descuentos, desayunos, rent-a-car, excursiones) usan
+# el mismo formato de URL con número final que las fichas de propiedad reales,
+# pero NO son alojamientos reservables -- son páginas informativas con
+# formulario de contacto. Se excluyen explícitamente para no tratarlas como
+# fichas críticas ni aplicarles el chequeo de precio/disponibilidad.
+OFFER_PAGE_REGEX = re.compile(r'/offer-')
 # Independiente del idioma: las páginas de listado por zona siempre llevan
 # un identificador "-dNNN" (ej. "-d880", "-d459458"), tanto en inglés
 # ("rentals-arrecife-d880") como en español ("alquileres-arrecife-d880").
@@ -144,10 +150,6 @@ CRITICAL_PAGES = [
     "https://www.countryvillaslanzarote.com/rentals/house-puerto-del-carmen-c24-casa-mercedes-apt-4-324238.html",
     "https://www.countryvillaslanzarote.com/rentals/house-puerto-viejo-casa-mercedes-apt-2-sea-view-and-terrace-puerto-del-carmen-lanzarote-324235.html",
     "https://www.countryvillaslanzarote.com/rentals/house-teguise-lanzarote-casa-los-divisos-small-cozy-cottage-in-la-villa-de-teguise-183960.html",
-    "https://www.countryvillaslanzarote.com/rentals/offer-10-discount-for-stays-of-10-nights-or-more-12850.html",
-    "https://www.countryvillaslanzarote.com/rentals/offer-breakfasts-with-a-charm-21555.html",
-    "https://www.countryvillaslanzarote.com/rentals/offer-rent-a-car-21402.html",
-    "https://www.countryvillaslanzarote.com/rentals/offer-to-do-activities--excursions-28655.html",
     "https://www.countryvillaslanzarote.com/rentals/studio-el-golfo-estudio-andrea-casa-rural-caleton-del-golfo-lanzarote-187595.html",
     "https://www.countryvillaslanzarote.com/rentals/villa-playa-blanca-villa-idaira-14a-villas-lanzarote-vipvipvillas-524109.html",
     "https://www.countryvillaslanzarote.com/rentals/villa-playa-blanca-villa-isamar-14b-villas-lanzarote-vipvipvillas-524153.html",
@@ -174,7 +176,7 @@ BOOKING_ENGINE_HEALTH_URL = "https://crs.avantio.com/default/js/jquery-3.4.1.min
 USE_HEADLESS_CHECK = os.environ.get("SITE_MONITOR_USE_HEADLESS", "1") == "1" and HEADLESS_AVAILABLE
 HEADLESS_TIMEOUT_MS = 30000
 HEADLESS_EXTRA_WAIT_MS = 3000
-PRICE_REGEX = re.compile(r'\d[\d.,]*\s?€')
+PRICE_REGEX = re.compile(r'\d[\d.,]*\s?€|€\s?\d[\d.,]*')
 MIN_PRICE_MATCHES = 1        # al menos un precio real visible en la página
 MIN_CALENDAR_CHARS = 100     # el bloque de calendario debe tener contenido real
 AVANTIO_DOMAIN_HINT = "avantio"
@@ -255,7 +257,7 @@ def crawl_site():
                 if parsed.path.lower().endswith(NON_PAGE_EXTENSIONS):
                     continue  # imágenes, PDFs, etc. -- no son páginas a comprobar
 
-                prop_match = PROPERTY_ID_REGEX.search(parsed.path)
+                prop_match = PROPERTY_ID_REGEX.search(parsed.path) if not OFFER_PAGE_REGEX.search(parsed.path) else None
                 if prop_match:
                     prop_id = prop_match.group(1)
                     if prop_id in seen_property_ids:
@@ -289,6 +291,8 @@ def url_identity(url):
     texto de la URL, para no confundir un cambio de slug con una huérfana
     real. El resto de páginas se identifican por su URL tal cual."""
     parsed = urlparse(url)
+    if OFFER_PAGE_REGEX.search(parsed.path):
+        return url
     m = PROPERTY_ID_REGEX.search(parsed.path)
     if m:
         return f"property:{m.group(1)}"
