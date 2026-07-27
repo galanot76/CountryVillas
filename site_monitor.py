@@ -230,6 +230,19 @@ def crawl_site():
     }
 
 
+def url_identity(url):
+    """Identidad estable de una URL para comparar entre rastreos. Una
+    propiedad puede tener varios slugs (inglés/español) que apuntan a la
+    MISMA ficha -- se identifican por su número de referencia, no por el
+    texto de la URL, para no confundir un cambio de slug con una huérfana
+    real. El resto de páginas se identifican por su URL tal cual."""
+    parsed = urlparse(url)
+    m = PROPERTY_ID_REGEX.search(parsed.path)
+    if m:
+        return f"property:{m.group(1)}"
+    return url
+
+
 def check_orphan_candidates(session, candidate_urls):
     """Para URLs que antes estaban enlazadas y ahora no: comprobamos si
     el servidor todavía las sirve (200). Si sí, son huérfanas de verdad
@@ -551,21 +564,31 @@ def main_completo():
     result = crawl_site()
 
     state = load_state()
-    is_first_run = len(state["known_urls"]) == 0
+    is_first_run = len(state.get("known_urls", [])) == 0 and not state.get("known_identity_map")
 
-    prev_known = set(state["known_urls"])
+    # known_identity_map: identidad -> URL representativa guardada la última vez.
+    # Compatibilidad con el formato antiguo (known_urls como lista de URLs):
+    # se migra automáticamente calculando la identidad de cada una.
+    prev_identity_map = state.get("known_identity_map")
+    if prev_identity_map is None:
+        prev_identity_map = {url_identity(u): u for u in state.get("known_urls", [])}
+
     prev_errors = state["errors"]  # dict url -> status (como string)
     prev_reported_orphans = set(state.get("reported_orphans", []))
 
     current_linked = result["linked_urls"]
+    current_identity_map = {url_identity(u): u for u in current_linked}
     current_errors = {e["url"]: str(e["status"]) for e in result["broken"]}
 
     # --- diff de errores ---
     new_errors = [e for e in result["broken"] if e["url"] not in prev_errors]
     resolved_errors = [u for u in prev_errors if u not in current_errors]
 
-    # --- candidatos a huérfanas: estaban enlazadas antes, ya no ---
-    candidate_orphan_urls = prev_known - current_linked
+    # --- candidatos a huérfanas: su IDENTIDAD (no su URL exacta) estaba
+    # enlazada antes y ya no lo está -- así un cambio de slug (inglés vs
+    # español) de la misma propiedad no se confunde con una huérfana real.
+    candidate_orphan_identities = set(prev_identity_map) - set(current_identity_map)
+    candidate_orphan_urls = {prev_identity_map[i] for i in candidate_orphan_identities}
     session = requests.Session()
     session.headers.update({"User-Agent": USER_AGENT})
     confirmed_orphans = check_orphan_candidates(session, candidate_orphan_urls) if candidate_orphan_urls else []
@@ -614,6 +637,7 @@ def main_completo():
 
     new_state = {
         "known_urls": list(current_linked),
+        "known_identity_map": current_identity_map,
         "errors": current_errors,
         "reported_orphans": list(all_reported_orphans),
         "critical_failing": list(current_critical_failing),
