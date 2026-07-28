@@ -652,11 +652,30 @@ def main_completo():
         i for i in candidate_orphan_identities
         if not LISTING_HINT_REGEX.search(urlparse(prev_identity_map[i]).path)
     }
-    candidate_orphan_urls = {prev_identity_map[i] for i in candidate_orphan_identities}
+
+    # --- debounce: exigir dos rastreos seguidos sin encontrar el enlace ---
+    # Una ficha puede estar enlazada solo a través de widgets tipo
+    # "Propiedades similares" en OTRA ficha -- ese enlace únicamente aparece
+    # si el rastreo llega a visitar esa ficha vecina, cosa que no está
+    # garantizada en un rastreo BFS con presupuesto limitado. Que "no se vea"
+    # una vez no significa que el enlace real haya desaparecido del sitio.
+    # Por eso exigimos que la identidad falte en DOS rastreos consecutivos
+    # antes de darla por huérfana de verdad -- mismo principio que ya se
+    # aplica a las fichas críticas en main_critico().
+    prev_pending_orphans = state.get("pending_orphans", {})  # identidad -> url, faltaba la vez anterior
+    confirmed_this_round_identities = candidate_orphan_identities & set(prev_pending_orphans)
+    candidate_orphan_urls = {
+        prev_pending_orphans[i] for i in confirmed_this_round_identities
+    }
     session = requests.Session()
     session.headers.update({"User-Agent": USER_AGENT})
     confirmed_orphans = check_orphan_candidates(session, candidate_orphan_urls) if candidate_orphan_urls else []
     new_orphans = [u for u in confirmed_orphans if u not in prev_reported_orphans]
+
+    # lo que falta SOLO en este rastreo pasa a "pendiente" para la próxima
+    # ejecución -- si en el próximo rastreo vuelve a aparecer enlazado, se
+    # descarta automáticamente y nunca llega a alertar.
+    new_pending_orphans = {i: prev_identity_map[i] for i in candidate_orphan_identities}
 
     # --- páginas críticas de reserva: también aquí, aunque su cadencia
     # principal de vigilancia es el modo "critico" ---
@@ -704,6 +723,7 @@ def main_completo():
         "known_identity_map": current_identity_map,
         "errors": current_errors,
         "reported_orphans": list(all_reported_orphans),
+        "pending_orphans": new_pending_orphans,
         "critical_failing": list(current_critical_failing),
         "last_run": datetime.now(timezone.utc).isoformat(),
     }
