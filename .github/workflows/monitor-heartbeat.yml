@@ -1,14 +1,15 @@
-name: Monitor de salud web - FICHAS CRITICAS (Country Villas Lanzarote)
+name: Monitor de salud web - HEARTBEAT SEMANAL (Country Villas Lanzarote)
 
 on:
   schedule:
-    - cron: "7 * * * *"      # cada hora, minuto 7 (no en punto -- evita la franja de mayor carga de GitHub, ver nota mas abajo)
-  workflow_dispatch: {}        # permite lanzarlo a mano desde la pestaña Actions, para probar
+    - cron: "0 8 * * 1"       # lunes 8:00, hora de Canarias (ajuste de DST automatico via timezone)
+      timezone: "Atlantic/Canary"
+  workflow_dispatch: {}       # permite lanzarlo a mano desde la pestaña Actions, para probar
 
 jobs:
-  monitor-critico:
+  heartbeat:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 5
     steps:
       - name: Descargar el repositorio
         uses: actions/checkout@v4
@@ -19,13 +20,11 @@ jobs:
           python-version: "3.12"
 
       - name: Instalar dependencias
-        run: |
-          pip install -r requirements.txt
-          python -m playwright install --with-deps chromium
+        run: pip install -r requirements.txt
 
-      - name: Ejecutar el monitor (solo fichas críticas)
+      - name: Enviar heartbeat semanal (solo lectura, no toca el estado de alertas)
         env:
-          SITE_MONITOR_MODE: critico
+          SITE_MONITOR_MODE: heartbeat
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}

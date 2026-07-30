@@ -2,7 +2,7 @@ name: Monitor de salud web - RASTREO COMPLETO (Country Villas Lanzarote)
 
 on:
   schedule:
-    - cron: "0 */8 * * *"   # cada 8 horas, en UTC -- enlaces rotos + huérfanas
+    - cron: "22 */8 * * *"  # cada 8 horas, minuto 22 (no en punto -- evita la franja de mayor carga de GitHub)
   workflow_dispatch: {}       # permite lanzarlo a mano desde la pestaña Actions, para probar
 
 jobs:

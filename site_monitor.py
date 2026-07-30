@@ -822,8 +822,71 @@ def main_critico():
           f"Motor de reservas: {'CAÍDO (confirmado)' if booking_engine_down else 'OK'}.")
 
 
+def _read_state_row(row_key):
+    """Lectura directa de una fila de site_monitor_state por id, de solo lectura.
+    A diferencia de load_state(), no depende del MODE actual: se usa desde
+    heartbeat para leer las filas de critico Y completo en la misma ejecucion."""
+    if not (SUPABASE_URL and SUPABASE_KEY):
+        return None
+    try:
+        resp = requests.get(
+            f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}",
+            params={"id": f"eq.{row_key}", "select": "data"},
+            headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        rows = resp.json()
+        return rows[0]["data"] if rows else None
+    except Exception as e:
+        print(f"Aviso: no se pudo leer '{row_key}' para el heartbeat ({e}).")
+        return None
+
+
+def main_heartbeat():
+    """Correo semanal de confirmacion de vida del sistema (lunes 8am Canarias).
+    No altera ningun estado ni participa en la logica de alertas/debounce --
+    es puramente informativo, para saber que el monitor sigue funcionando
+    aunque no haya habido ninguna incidencia que reportar esta semana."""
+    critico = _read_state_row("countryvillaslanzarote_critico") or {}
+    completo = _read_state_row("countryvillaslanzarote_completo") or {}
+
+    lines = []
+    lines.append("Heartbeat semanal - countryvillaslanzarote.com")
+    lines.append(f"Fecha: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
+    lines.append("")
+    lines.append("Esto es solo una confirmacion de que el sistema de monitorizacion")
+    lines.append("sigue funcionando. No implica que se haya revisado nada distinto")
+    lines.append("a lo habitual -- si hubiera algo roto, ya habrias recibido un aviso aparte.")
+    lines.append("")
+
+    if critico:
+        n_failing = len(critico.get("critical_failing", []) or [])
+        lines.append(f"Fichas criticas -- ultima ejecucion: {critico.get('last_run', 'desconocida')}")
+        lines.append(f"  Fichas con problemas confirmados ahora mismo: {n_failing}")
+    else:
+        lines.append("Fichas criticas -- sin datos disponibles (revisar configuracion).")
+
+    lines.append("")
+
+    if completo:
+        n_pages = len(completo.get("known_urls", []) or [])
+        n_orphans = len(completo.get("reported_orphans", []) or [])
+        n_errors = len(completo.get("errors", {}) or {})
+        lines.append(f"Rastreo completo -- ultima ejecucion: {completo.get('last_run', 'desconocida')}")
+        lines.append(f"  Paginas rastreadas: {n_pages}")
+        lines.append(f"  Huerfanas confirmadas activas: {n_orphans}")
+        lines.append(f"  Errores/enlaces rotos activos: {n_errors}")
+    else:
+        lines.append("Rastreo completo -- sin datos disponibles (revisar configuracion).")
+
+    send_email("Heartbeat semanal - countryvillaslanzarote.com (todo en marcha)", "\n".join(lines))
+
+
 if __name__ == "__main__":
     if MODE == "critico":
         main_critico()
+    elif MODE == "heartbeat":
+        main_heartbeat()
     else:
         main_completo()
