@@ -133,7 +133,6 @@ CRITICAL_PAGES = [
     "https://www.countryvillaslanzarote.com/rentals/apartment-puerto-del-carmen-casa-anzuelo-with-balcony-puerto-del-carmen-450705.html",
     "https://www.countryvillaslanzarote.com/rentals/apartment-puerto-del-carmen-casa-felicidad-air-conditioning-sea-view-puerto-del-carmen-lanzarote-374065.html",
     "https://www.countryvillaslanzarote.com/rentals/apartment-puerto-del-carmen-casa-gecko-sea-view-sunroof-terrace-puerto-del-carmen-lanzarote-484193.html",
-    "https://www.countryvillaslanzarote.com/rentals/apartment-puerto-del-carmen-casa-mantina-puerto-del-carmen-572766.html",
     "https://www.countryvillaslanzarote.com/rentals/apartment-puerto-del-carmen-casa-xabi-private-terrace-puerto-del-carmen-680581.html",
     "https://www.countryvillaslanzarote.com/rentals/apartment-puerto-del-carmen-casita-el-puerto-sea-views-504252.html",
     "https://www.countryvillaslanzarote.com/rentals/apartment-puerto-viejo-casa-mercedes-apt-1-sea-view-and-terrace-puerto-del-carmen-lanzarote-324234.html",
